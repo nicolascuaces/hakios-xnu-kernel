@@ -29,8 +29,8 @@
 
 /* XNU's view of memory: one contiguous range that nothing else (LK, Android, TEE, ATF, the
  * framebuffer) uses; 0xc0000000-0xfe000000 is free DRAM on this board. */
-#define XNU_PHYS_BASE       0xc0000000ULL
-#define XNU_MEM_SIZE        0xfe000000ULL       /* up to dramc-rk1 at 0x1bffff000; room for the system image */
+#define XNU_PHYS_BASE       0x100000000ULL  /* A22: between 0xe0000000 and 0xffff0000 there are the modem and DPM */
+#define XNU_MEM_SIZE        0x3e000000ULL       /* A22: 992 MB clean, below dramc-rk1 (0x13ffff000) */
 /* Where the system image is put, clear of the kernel, as xnuloader does it (RESIDENT_RD_OFFSET). */
 #define SYSTEM_PA           (XNU_PHYS_BASE + 0x08000000ULL)
 #define SYSTEM_PART         "xnusys"
@@ -85,6 +85,10 @@ static const uint8_t core_order[8] = { 0, 7, 6, 1, 2, 3, 4, 5 };
 /* 1: look at the touch screen's SPI and report, then go back to Android (no XNU). */
 #ifndef TOUCH_PROBE
 #define TOUCH_PROBE         0
+#endif
+/* 1: A22: probe the Himax touch controller (read-only) if Android asked for it by pmsg; then Android. */
+#ifndef HIMAX_PROBE
+#define HIMAX_PROBE         0
 #endif
 /* 1: wake the GPU and ask it what it is, if Android asked for it (tools/gpu-probe.sh); then Android. */
 #ifndef GPU_PROBE
@@ -385,6 +389,16 @@ static void out_dec(uint64_t v)
 }
 
 #include "mtkconnsys.h"         /* Wi-Fi step 1: Android's device tree on CONNSYS, printed (uses out()) */
+#ifndef HIMAX_TOUCH                    /* A22: Himax touch controller for XNU if himaxfw.h exists */
+#if __has_include("himaxfw.h")
+#define HIMAX_TOUCH 1
+#else
+#define HIMAX_TOUCH 0
+#endif
+#endif
+#if HIMAX_PROBE || HIMAX_TOUCH
+#include "mtkhimax.h"
+#endif
 
 /* ---- run state ---- */
 
@@ -414,7 +428,7 @@ static void display_find(void)
 
 	fb_base = LK_FB_BASE;
 	fb_pitch = LK_FB_PITCH;
-	if (addr >= LK_FB_BASE && addr < LK_FB_BASE + LK_FB_SIZE && pitch >= PANEL_W * 4 && pitch <= 4096) {
+	if (addr >= LK_FB_BASE && addr < LK_FB_BASE + LK_FB_SIZE && pitch >= PANEL_W * 4 && pitch <= 8192) {
 		fb_base = addr;
 		fb_pitch = pitch;
 	}
@@ -970,6 +984,9 @@ static void __attribute__((noreturn)) reset_board(void)
 #if TOUCH_PROBE
 static void touch_hand_back(void);
 #endif
+#if HIMAX_PROBE || HIMAX_TOUCH
+static void himax_hand_back(void);
+#endif
 
 static void __attribute__((noreturn)) chain_android(void)
 {
@@ -985,6 +1002,9 @@ static void __attribute__((noreturn)) chain_android(void)
 	}
 #if TOUCH_PROBE
 	touch_hand_back();
+#endif
+#if HIMAX_PROBE || HIMAX_TOUCH
+	himax_hand_back();
 #endif
 	out("starting Android\n");
 
@@ -2122,6 +2142,10 @@ static void big_cores_clock(void)
 	out(" MHz at the same 800 mV\n");
 }
 
+#include "mtka22clk.h"             /* A22: clock and voltage of the A76s */
+
+#include "mtka22boot.h"             /* A22: Vol- at power-on = iOS; time from the RTC */
+
 static void __attribute__((noreturn)) run_xnu(void)
 {
 	struct payload_info pi;
@@ -2308,6 +2332,7 @@ static void __attribute__((noreturn)) run_xnu(void)
 	ba->video.v_height = PANEL_H;
 	ba->video.v_depth = 32;
 	memcpy(ba->commandLine, XNU_BOOT_ARGS, sizeof(XNU_BOOT_ARGS));
+	a22_append_epoch(ba->commandLine, sizeof(ba->commandLine));   /* A22: time from the RTC */
 
 	out("md0 ");
 	out_hex(sys_size ? sys_pa : rd_pa);
@@ -2385,8 +2410,15 @@ static void __attribute__((noreturn)) run_xnu(void)
 	 * place to do it from: it would have to carry those hundred kilobytes itself, and it comes
 	 * up long after the chip has forgotten them.
 	 */
+#if 0 /* A22: touch_bring_up is for the Infinix's TD4160 touch controller (MT6768 pins, clocks and SPI) */
 	touch_bring_up();
-	big_cores_clock();
+#endif
+#if HIMAX_TOUCH
+	himax_bring_up();      /* A22: the touch controller, before XNU */
+#endif
+#if A22_BIG_MHZ
+	a22_big_cores_clock();      /* A22: the A76s at their speed */
+#endif
 	/*
 	 * Nothing of ours is left on the panel: iOS paints only what it draws, and where it does not
 	 * reach, what LK wrote there stays -- its "Orange State: your device has been unlocked"
@@ -2491,7 +2523,7 @@ static void msdc1_probe(void)
 static void msdc_self_test(void)
 {
 	static uint8_t buf[4096] __attribute__((aligned(16)));
-	const uint64_t boot_a_lba = 0xf5000; /* from LK's partition table */
+	const uint64_t boot_a_lba = 0x15e400; /* from LK's partition table */
 	int ok;
 
 	/* a hang in here must not keep the phone: the watchdog brings Android back */
@@ -3011,7 +3043,7 @@ static int xnu_requested(void)
 
 static int boot_choice(void)
 {
-	int xnu = MENU_DEFAULT_XNU || xnu_requested();
+	int xnu = MENU_DEFAULT_XNU || xnu_requested() || a22_key_wants_xnu();   /* A22: Vol- */
 	uint64_t screen = fbc.base;
 
 	fbc.base = 0;
@@ -3402,6 +3434,17 @@ void mtkloader_main(uint64_t dtb)
 	out("== mtkloader: touch screen probe ==\n");
 	touch_probe();
 	dbg_delay_ms(4000);
+	chain_android();
+#endif
+#if HIMAX_PROBE
+	if (pmsg_take(himax_probe_flag, sizeof(himax_probe_flag) - 1)) {
+		fb_rect(0, 0, PANEL_W, PANEL_H, 0xff000000u);
+		fbc.x = 0;
+		fbc.y = fbc.top = 0;
+		out("== mtkloader: Himax touch probe (A22) ==\n");
+		himax_probe();
+		dbg_delay_ms(6000);
+	}
 	chain_android();
 #endif
 #if GPU_PROBE

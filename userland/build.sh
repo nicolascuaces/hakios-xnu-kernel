@@ -507,6 +507,12 @@ done
 [ -d root/lib/RedwoodAudio.driver ] && ln -s /redwood/lib/RedwoodAudio.driver root/hal/RedwoodAudio.driver
 # the image: zlib where it saves room (a small file whole in its attribute, as Apple keeps them); fw/
 # as it is, which the kernel's drivers use where it lies in memory (bsd/dev/redwood_image.c)
+# the A22's CONNSYS firmware (Wi-Fi, Bluetooth) into the small image's fw/ (bsd/dev/redwood_a22connsys.c)
+if [ -d ../xnu-deps/build/connsys-fw/firmware ]; then
+	mkdir -p root/fw
+	cp ../xnu-deps/build/connsys-fw/firmware/soc2_2_* root/fw/
+	cp ../xnu-deps/build/connsys-fw/firmware/WIFI_RAM_CODE_soc2_2_* root/fw/
+fi
 python3 ../tools/apfs/mkapfs.py -z --plain fw -o root.apfs redwood=root | tail -1
 [ -z "$CHECK" ] || ../tools/apfs/check-image.sh root.apfs redwood=root
 

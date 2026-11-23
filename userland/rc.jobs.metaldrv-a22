@@ -1,0 +1,6 @@
+# A22, Metal step 1b (no camtl): only metal_drv_test. metal_test already gave what it had in metal1.log
+# (CoreImage through Metal on the G57, correct pixel) and uses so much memory that jetsam killed backboardd.
+# Copy to userland/ and build with RC_JOBS=rc.jobs.metaldrv-a22. The A22 reaches the home screen in ~71 s, hence 80.
+# tolog sends the output to the kernel log, so it shows up in ramoops.
+/redwood/bin/rwtouch wait 80
+/redwood/bin/tolog /redwood/bin/metal_drv_test --bundle --picture 20 /System/Library/Extensions/AppleMetalGLRenderer.bundle/default.metallib

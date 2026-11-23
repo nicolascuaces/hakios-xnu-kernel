@@ -444,6 +444,34 @@ math_op(struct air_ctx *c, const struct air_inst *in, const struct air_name *n, 
    } else if (!strcmp(op, "fast_fmin") || !strcmp(op, "fmin") || !strcmp(op, "min")) {
       r = is_float ? nir_fmin(&c->b, a[0], a[1])
                    : (is_signed ? nir_imin(&c->b, a[0], a[1]) : nir_umin(&c->b, a[0], a[1]));
+   } else if (!strcmp(op, "fast_fmax3") || !strcmp(op, "fmax3") || !strcmp(op, "max3") ||
+              !strcmp(op, "fast_fmin3") || !strcmp(op, "fmin3") || !strcmp(op, "min3") ||
+              !strcmp(op, "fast_fmedian3") || !strcmp(op, "fmedian3") || !strcmp(op, "median3")) {
+      /* A22: Metal's three-argument min/max/median (air.fmax3.f16 in QuartzCore's uber shader,
+       * metal2.log): two two-argument steps. median3 = max(min(a,b), min(max(a,b),c)). */
+      nir_def *lo, *hi;
+      if (is_float) {
+         lo = nir_fmin(&c->b, a[0], a[1]);
+         hi = nir_fmax(&c->b, a[0], a[1]);
+      } else if (is_signed) {
+         lo = nir_imin(&c->b, a[0], a[1]);
+         hi = nir_imax(&c->b, a[0], a[1]);
+      } else {
+         lo = nir_umin(&c->b, a[0], a[1]);
+         hi = nir_umax(&c->b, a[0], a[1]);
+      }
+      if (strstr(op, "max3"))
+         r = is_float ? nir_fmax(&c->b, hi, a[2])
+                      : (is_signed ? nir_imax(&c->b, hi, a[2]) : nir_umax(&c->b, hi, a[2]));
+      else if (strstr(op, "min3"))
+         r = is_float ? nir_fmin(&c->b, lo, a[2])
+                      : (is_signed ? nir_imin(&c->b, lo, a[2]) : nir_umin(&c->b, lo, a[2]));
+      else {
+         nir_def *m = is_float ? nir_fmin(&c->b, hi, a[2])
+                               : (is_signed ? nir_imin(&c->b, hi, a[2]) : nir_umin(&c->b, hi, a[2]));
+         r = is_float ? nir_fmax(&c->b, lo, m)
+                      : (is_signed ? nir_imax(&c->b, lo, m) : nir_umax(&c->b, lo, m));
+      }
    } else if (!strcmp(op, "fast_fmax") || !strcmp(op, "fmax") || !strcmp(op, "max")) {
       r = is_float ? nir_fmax(&c->b, a[0], a[1])
                    : (is_signed ? nir_imax(&c->b, a[0], a[1]) : nir_umax(&c->b, a[0], a[1]));

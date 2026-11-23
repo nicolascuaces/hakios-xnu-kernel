@@ -184,7 +184,7 @@
  
 -foreach ver : ['4', '5', '6', '7', '9', '10']
 +# Darwin: the Infinix's Mali-G52 is Bifrost v7, and the image the driver travels in is small
-+foreach ver : host_machine.system() == 'darwin' ? ['7'] : ['4', '5', '6', '7', '9', '10']
++foreach ver : host_machine.system() == 'darwin' ? ['9'] : ['4', '5', '6', '7', '9', '10']
    libpanfrost_per_arch += static_library(
      'pan-arch-v' + ver,
      [
@@ -196,7 +196,7 @@
  
 -panfrost_versions = ['4', '5', '6', '7', '9', '10']
 +# Darwin: Bifrost v7 only (the Infinix's Mali-G52), for the size of the image the driver travels in
-+panfrost_versions = host_machine.system() == 'darwin' ? ['7'] : ['4', '5', '6', '7', '9', '10']
++panfrost_versions = host_machine.system() == 'darwin' ? ['9'] : ['4', '5', '6', '7', '9', '10']
  libpanfrost_versions = []
  
  foreach ver : panfrost_versions
@@ -207,7 +207,7 @@
   * compile once to avoid the GenXML dependency for calls.
   */
 -#if PAN_ARCH == 5
-+#if PAN_ARCH == 5 || (defined(__APPLE__) && PAN_ARCH == 7)   /* Darwin builds v7 alone */
++#if PAN_ARCH == 5 || (defined(__APPLE__) && PAN_ARCH == 9)   /* Darwin builds v7 alone */
  uint8_t
  pan_raw_format_mask_midgard(enum pipe_format *formats)
  {
@@ -219,8 +219,8 @@
  
 +#ifdef __APPLE__
 +   /* Darwin builds Bifrost v7 alone, the Infinix's Mali-G52 */
-+   if (dev->arch == 7)
-+      panfrost_cmdstream_screen_init_v7(screen);
++   if (dev->arch == 9)
++      panfrost_cmdstream_screen_init_v9(screen);
 +   else {
 +      panfrost_destroy_screen(&(screen->base));
 +      return NULL;

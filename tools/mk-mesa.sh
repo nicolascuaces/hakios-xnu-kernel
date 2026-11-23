@@ -94,14 +94,14 @@ case "$DRIVERS" in *panfrost*) OPT=-Doptimization=s ;; esac
 	-Dzstd=disabled -Dxmlconfig=disabled -Dexpat=disabled -Dshader-cache=disabled -Dvalgrind=disabled \
 	-Dlibunwind=disabled -Dglvnd=disabled -Dvideo-codecs= -Dtools= -Dgallium-vdpau=disabled -Dgallium-va=disabled \
 	-Dgallium-xa=disabled -Dlmsensors=disabled -Dbuild-tests=false > meson-setup.log
-ninja -C $BUILD > ninja.log
+ninja -j4 -C $BUILD > ninja.log
 # air_run draws with a translated Metal shader and reads the pixels back; it is
 # the only way to find out whether the Adreno takes work that did not come from
 # the window server. Built only when asked, since it is a test program.
 if [ "${AIR:-}" = 1 ]; then
 	# beside the driver it draws with: freedreno's directory for the Adreno, panfrost's for the Mali
 	case ",$DRIVERS," in *,panfrost,*) AIR_DIR=panfrost ;; *) AIR_DIR=freedreno ;; esac
-	ninja -C $BUILD src/gallium/drivers/$AIR_DIR/air_run >> ninja.log
+	ninja -j4 -C $BUILD src/gallium/drivers/$AIR_DIR/air_run >> ninja.log
 	cp $BUILD/src/gallium/drivers/$AIR_DIR/air_run out/air_run
 	echo "mk-mesa.sh: $B/out/air_run ($(wc -c < out/air_run) bytes)"
 fi

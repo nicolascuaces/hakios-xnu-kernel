@@ -131,3 +131,6 @@ fw-*/
 # and blend/vertex layouts, as numbers -- tools/rwm-recipes.py, src/redwoodmetal.m)
 !/userland/share/rwm-recipes.txt
 /userland/src/camera_trace_local.h
+
+/mtkloader/himaxfw.h
+mtkloader/himaxfw.h

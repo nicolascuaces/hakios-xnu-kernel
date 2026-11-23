@@ -1,0 +1,9 @@
+# Commands run by the launchd job com.redwood.demo (see com.redwood.demo.plist).
+/redwood/bin/hello_dyn started by launchd
+/redwood/bin/svc_test
+/redwood/bin/surf_test
+/bin/ps -A
+# "swipe up to open": until somebody can do it with a finger
+/redwood/bin/rwtouch wait 32 swipe 0.5 0.985 0.5 0.3 250 &
+# A22: audio test: iOS tone, a raw tone straight to /dev/redwood-audio, keyboard click, where iOS routes its sound
+/redwood/bin/sound_test springboard wait 3 route tone 3 wait 2 raw 3 wait 2 system 1104 wait 1 system 1100 route

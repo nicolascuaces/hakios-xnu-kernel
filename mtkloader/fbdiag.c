@@ -125,11 +125,11 @@ void fbdiag_fault(uint64_t vec, uint64_t esr, uint64_t elr, uint64_t far)
  * whether DRAM survives the reset that will end XNU runs, and then starts Android.
  * The marker is the header word of ramoops' ftrace zone: Android's ramoops rewrites it.
  */
-#define MARKER_PA     0x4d0df000ULL
+#define MARKER_PA     0x4815f000ULL /* A22: header of the ramoops ftrace zone */
 #define MARKER_PHASE2 0x32474946u /* "FIG2" */
 #define WDT_SECONDS   10
 
-static const uint64_t probe_pa[] = { 0x42000000ULL, 0x47b1c9c0ULL, 0x80000000ULL, 0xc0000000ULL, 0xc7b1c9c0ULL, 0xd0000000ULL, 0x140000000ULL };
+static const uint64_t probe_pa[] = { 0x80000000ULL, 0x80100000ULL, 0xc0000000ULL, 0x100000000ULL, 0x13e000000ULL }; /* A22: 4 GB, nothing at 0x140000000 */
 #define PROBE_WORDS 256
 
 static uint32_t pattern(uint64_t pa, uint32_t i)
@@ -197,7 +197,7 @@ void fbdiag_main(uint64_t dtb)
 	uint32_t l0_con = rd32(OVL0_BASE + OVL_L0_CON);
 	uint64_t fb = LK_FB_BASE;
 	uint32_t pitch = LK_FB_PITCH;
-	if (l0_addr >= LK_FB_BASE && l0_addr < LK_FB_BASE + LK_FB_SIZE && l0_pitch >= PANEL_W * 4 && l0_pitch <= 4096) {
+	if (l0_addr >= LK_FB_BASE && l0_addr < LK_FB_BASE + LK_FB_SIZE && l0_pitch >= PANEL_W * 4 && l0_pitch <= 8192) {
 		fb = l0_addr;
 		pitch = l0_pitch;
 	}
