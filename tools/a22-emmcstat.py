@@ -10,7 +10,12 @@ Boot-arg emmc_stat=SECONDS (e.g. 15) prints, every that many seconds, one line f
 "busy" is the time spent inside the reads (the CPU spins there, see ksamp); the sizes are those of each command
 (a request of the file system is cut into commands of up to 512 KB). A second line, "emmc mem:", gives the memory of the
 same moment (free, active, inactive, file-backed, anonymous, wired, and what was fed to the compressor, in MB).
-Running the script again on a tree that has the first version adds only the memory line. Only counts; nothing is
+A third part, "emmc wired:", gives the kernel's own allocations by tag (MB: 1 osfmk, 2 bsd, 3 iokit, 4 libkern,
+7 ipc, 8 stack, 10 pmap, 11 pte, 12 zone, 13 kalloc, 14 compressor, 15 compressed data, 20 file, 22 ubc, 29 kalloc_data,
+31 kalloc_type), "emmc tag:" lines for every named tag of 2 MB or more (kexts, IOKit sub-allocations) and "emmc zone:"
+lines with the 8 biggest zones; what the tags do not add up to is wired memory of
+programs (IOSurface, the GPU, mlock).
+Running the script again on a tree that has an older version adds only what is missing. Only counts; nothing is
 read or written.
 """
 import os
@@ -97,6 +102,97 @@ MEM_PRINT_NEW = MEM_PRINT_OLD + """	printf("emmc mem: free %llu MB, active %llu,
 	    ES_MB(vm_page_pageable_internal_count), ES_MB(vm_page_wire_count), ES_MB(c_segment_pages_compressed));
 """
 
+WIRED_ANCHOR = "static void\nes_fire(__unused thread_call_param_t p0, __unused thread_call_param_t p1)\n"
+WIRED_FN = """extern uint64_t vm_tag_get_size(uint16_t tag);
+extern void zone_top_report(void);                      /* kern/zalloc.c, added by this script */
+
+static void
+es_wired(void)
+{
+	char line[300];
+	int at = 0;
+
+	for (uint16_t tag = 1; tag <= 33; tag++) {
+		uint64_t mb = vm_tag_get_size(tag) >> 20;
+
+		if (mb >= 2 && at < 240) {
+			at += snprintf(line + at, sizeof(line) - at, " %u=%llu", tag, mb);
+		}
+	}
+	line[at] = 0;
+	printf("emmc wired: tags (MB):%s\\n", at ? line : " none");
+	zone_top_report();
+}
+
+"""
+WIRED_CALL_OLD = "ES_MB(vm_page_pageable_internal_count), ES_MB(vm_page_wire_count), ES_MB(c_segment_pages_compressed));\n"
+WIRED_CALL_NEW = WIRED_CALL_OLD + "\tes_wired();\n"
+
+ZALLOC_CODE = """
+
+/* a22-emmcstat.py: the biggest zones, one line each (for the emmc_stat line "emmc zone:") */
+void zone_top_report(void);
+void
+zone_top_report(void)
+{
+	zone_t top[8] = { NULL };
+	uint64_t size[8] = { 0 };
+
+	zone_index_foreach(zid) {
+		zone_t z = &zone_array[zid];
+		uint64_t s = zone_size_wired(z);
+
+		if (zid == ZONE_ID_VM_PAGES) {
+			continue;
+		}
+		for (int i = 0; i < 8; i++) {
+			if (s > size[i]) {
+				for (int j = 7; j > i; j--) {
+					top[j] = top[j - 1];
+					size[j] = size[j - 1];
+				}
+				top[i] = z;
+				size[i] = s;
+				break;
+			}
+		}
+	}
+	for (int i = 0; i < 8; i++) {
+		if (top[i]) {
+			printf("emmc zone: %s %llu KB\\n", top[i]->z_name, size[i] >> 10);
+		}
+	}
+}
+"""
+
+zpath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(path))), "osfmk", "kern", "zalloc.c")
+
+VMTAG_ANCHOR_OLD = "\tzone_top_report();\n}\n"
+VMTAG_ANCHOR_NEW = "\tzone_top_report();\n\tvm_tag_report();\n}\n"
+VMTAG_DECL_OLD = "extern void zone_top_report(void);                      /* kern/zalloc.c, added by this script */\n"
+VMTAG_DECL_NEW = VMTAG_DECL_OLD + "extern void vm_tag_report(void);                       /* vm/vm_resident.c, added by this script */\n"
+VMTAG_CODE = """
+
+/* a22-emmcstat.py: every dynamic tag with 2 MB or more, with its name (for the emmc_stat line "emmc tag:") */
+void vm_tag_report(void);
+void
+vm_tag_report(void)
+{
+	for (uint32_t t = VM_KERN_MEMORY_FIRST_DYNAMIC; t < VM_MAX_TAG_VALUE; t++) {
+		vm_allocation_site_t *site = vm_allocation_sites[t];
+
+		if (t == VM_KERN_MEMORY_ANY || site == NULL) {
+			continue;
+		}
+		uint64_t total = os_atomic_load(&site->total, relaxed);
+		if ((total >> 20) >= 2) {
+			printf("emmc tag: %u %s %llu MB\\n", t, KA_NAME(site), total >> 20);
+		}
+	}
+}
+"""
+vpath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(path))), "osfmk", "vm", "vm_resident.c")
+
 src = open(path).read()
 out = src
 if "es_init" not in out:
@@ -109,12 +205,30 @@ if "emmc mem:" not in out:
         if out.count(old) != 1:
             sys.exit("NOT FOUND (%d matches): %r" % (out.count(old), old.strip().splitlines()[0]))
         out = out.replace(old, new)
-if out == src:
+if "es_wired" not in out:
+    for old, new in [(WIRED_ANCHOR, WIRED_FN + WIRED_ANCHOR), (WIRED_CALL_OLD, WIRED_CALL_NEW)]:
+        if out.count(old) != 1:
+            sys.exit("NOT FOUND (%d matches): %r" % (out.count(old), old.strip().splitlines()[0]))
+        out = out.replace(old, new)
+if "vm_tag_report" not in out:
+    for old, new in [(VMTAG_DECL_OLD, VMTAG_DECL_NEW), (VMTAG_ANCHOR_OLD, VMTAG_ANCHOR_NEW)]:
+        if out.count(old) != 1:
+            sys.exit("NOT FOUND (%d matches): %r" % (out.count(old), old.strip().splitlines()[0]))
+        out = out.replace(old, new)
+vsrc = open(vpath).read()
+vout = vsrc if "vm_tag_report" in vsrc else vsrc.rstrip("\n") + "\n" + VMTAG_CODE
+zsrc = open(zpath).read()
+zout = zsrc if "zone_top_report" in zsrc else zsrc.rstrip("\n") + "\n" + ZALLOC_CODE
+if out == src and zout == zsrc and vout == vsrc:
     print("already applied:", path)
     sys.exit(0)
-print(("patching: " if do_apply else "would patch: ") + path)
-if do_apply:
-    shutil.copy(path, path + ".stat2.orig")
-    open(path, "w").write(out)
-else:
+for pth, a, b, suffix in ((path, src, out, ".stat3.orig"), (zpath, zsrc, zout, ".stat3.orig"), (vpath, vsrc, vout, ".stat3.orig")):
+    if a == b:
+        continue
+    print(("patching: " if do_apply else "would patch: ") + pth)
+    if do_apply:
+        if not os.path.exists(pth + suffix):
+            shutil.copy(pth, pth + suffix)
+        open(pth, "w").write(b)
+if not do_apply:
     print("review only; add 'apply' to apply.")

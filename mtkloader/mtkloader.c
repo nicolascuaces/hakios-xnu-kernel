@@ -35,8 +35,21 @@
 #else
 /* A22 dram2: 0xc0000000..0x13dffffff is one span for XNU; 0xe0000000..0xffffffff (modem, DPM) is a hole
  * the kernel is told about (ram_hole_* boot-args below). Usable: 512 MB + 992 MB = 1504 MB. */
+#ifdef A22_DRAM2_ONLY
 #define XNU_PHYS_BASE       0xc0000000ULL
 #define XNU_MEM_SIZE        0x7e000000ULL
+#else
+/* A22 dram3: 0xa0000000..0x13dffffff is one span for XNU, with two holes the kernel is told about: 0xb9600000..0xbfffffff
+ * (small carve-outs) and 0xe0000000..0xffffffff (modem, DPM). Usable: 406 + 512 + 992 = 1910 MB. */
+#ifdef A22_DRAM3_ONLY
+#define XNU_PHYS_BASE       0xa0000000ULL
+#define XNU_MEM_SIZE        0x9e000000ULL
+#else
+/* A22 dram4: 0x80000000..0x13dffffff is one span for XNU with six holes (ram_holes boot-arg below). Usable 2370 MB. */
+#define XNU_PHYS_BASE       0x80000000ULL
+#define XNU_MEM_SIZE        0xbe000000ULL
+#endif
+#endif
 #endif
 /* Where the system image is put, clear of the kernel, as xnuloader does it (RESIDENT_RD_OFFSET). */
 #define SYSTEM_PA           (XNU_PHYS_BASE + 0x08000000ULL)
@@ -2343,7 +2356,14 @@ static void __attribute__((noreturn)) run_xnu(void)
 #ifndef A22_ONE_BANK
 	{
 		/* A22 dram2: where the modem's memory is, in MB: 0xe0000000 .. 0x100000000 */
+#ifdef A22_DRAM2_ONLY
 		static const char hole[] = " ram_hole_start_mb=3584 ram_hole_end_mb=4096";
+#elif defined(A22_DRAM3_ONLY)
+		static const char hole[] = " ram_hole_start_mb=2966 ram_hole_end_mb=3072 ram_hole2_start_mb=3584 ram_hole2_end_mb=4096";
+#else
+		/* A22 dram4: the holes in hex MB: START-END, ... */
+		static const char hole[] = " ram_holes=8a0-8ca,8e0-8e2,8f0-8f4,9fc-a00,b96-c00,e00-1000";
+#endif
 		uint32_t n = 0;
 
 		while (ba->commandLine[n]) {
