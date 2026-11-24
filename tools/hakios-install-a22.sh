@@ -17,7 +17,7 @@ VENTANA=${A22_WINDOW:-${A22_VENTANA:-2500}}
 XNU_ARGS=${XNU_ARGS:?set XNU_ARGS to the boot-args of your last good cycle}
 CORES=$(expr "$XNU_ARGS" : '.*cpus=\([0-9]*\)' || echo 1)
 [ -n "$CORES" ] || CORES=1
-IMG="$ROOT/xnu-a22-fijo.img"
+IMG="$ROOT/xnu-a22-installed.img"
 
 for tool in adb python3 shasum; do
 	command -v $tool >/dev/null || { echo "$tool is missing from the PATH"; exit 1; }
@@ -32,8 +32,8 @@ done
 	"-DXNU_EXTRA_ARGS=\"$XNU_ARGS\"" "$@" >/dev/null
 python3 "$ROOT/tools/chainboot.py" "$BOOT" "$ROOT/mtkloader/mtkloader.bin" "$IMG" "$ROOT/build-payload.bin"
 
-$A push "$IMG" /data/local/tmp/xnu-a22-fijo.img >/dev/null
-$A shell "su -c 'dd if=/data/local/tmp/xnu-a22-fijo.img of=/dev/block/by-name/boot bs=1048576 conv=fsync'" 2>&1 | tail -1
+$A push "$IMG" /data/local/tmp/xnu-a22-installed.img >/dev/null
+$A shell "su -c 'dd if=/data/local/tmp/xnu-a22-installed.img of=/dev/block/by-name/boot bs=1048576 conv=fsync'" 2>&1 | tail -1
 L=$(stat -f %z "$IMG")
 H1=$(shasum -a 256 "$IMG" | cut -d' ' -f1)
 H2=$($A shell "su -c 'head -c $L /dev/block/by-name/boot | sha256sum'" | cut -d' ' -f1)

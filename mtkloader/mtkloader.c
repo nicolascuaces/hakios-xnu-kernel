@@ -29,8 +29,15 @@
 
 /* XNU's view of memory: one contiguous range that nothing else (LK, Android, TEE, ATF, the
  * framebuffer) uses; 0xc0000000-0xfe000000 is free DRAM on this board. */
+#ifdef A22_ONE_BANK
 #define XNU_PHYS_BASE       0x100000000ULL  /* A22: between 0xe0000000 and 0xffff0000 there are the modem and DPM */
 #define XNU_MEM_SIZE        0x3e000000ULL       /* A22: 992 MB clean, below dramc-rk1 (0x13ffff000) */
+#else
+/* A22 dram2: 0xc0000000..0x13dffffff is one span for XNU; 0xe0000000..0xffffffff (modem, DPM) is a hole
+ * the kernel is told about (ram_hole_* boot-args below). Usable: 512 MB + 992 MB = 1504 MB. */
+#define XNU_PHYS_BASE       0xc0000000ULL
+#define XNU_MEM_SIZE        0x7e000000ULL
+#endif
 /* Where the system image is put, clear of the kernel, as xnuloader does it (RESIDENT_RD_OFFSET). */
 #define SYSTEM_PA           (XNU_PHYS_BASE + 0x08000000ULL)
 #define SYSTEM_PART         "xnusys"
@@ -2333,6 +2340,20 @@ static void __attribute__((noreturn)) run_xnu(void)
 	ba->video.v_depth = 32;
 	memcpy(ba->commandLine, XNU_BOOT_ARGS, sizeof(XNU_BOOT_ARGS));
 	a22_append_epoch(ba->commandLine, sizeof(ba->commandLine));   /* A22: time from the RTC */
+#ifndef A22_ONE_BANK
+	{
+		/* A22 dram2: where the modem's memory is, in MB: 0xe0000000 .. 0x100000000 */
+		static const char hole[] = " ram_hole_start_mb=3584 ram_hole_end_mb=4096";
+		uint32_t n = 0;
+
+		while (ba->commandLine[n]) {
+			n++;
+		}
+		if (n + sizeof(hole) <= sizeof(ba->commandLine)) {
+			memcpy(ba->commandLine + n, hole, sizeof(hole));
+		}
+	}
+#endif
 
 	out("md0 ");
 	out_hex(sys_size ? sys_pa : rd_pa);

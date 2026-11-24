@@ -48,10 +48,28 @@
 
 #define BLOCK           4096
 #define BUFFER          (4u << 20)              /* the loader's own buffer: one request a write */
-#define STORE_AT        8589934592LL            /* darwin's block 2097152: past the cryptexes, with room to spare */
-#define SLOT_BYTES      0x80000000LL            /* 2 GiB a slot, two slots */
+/* the Infinix's partition darwin, or the A22's tail of xnusys (bsd/dev/redwood_emmc.c): pick_store() chooses */
+#define STORE_AT        store_at
+#define SLOT_BYTES      slot_bytes
 #define SLOTS           2
-#define DEVICE          "/dev/rufs_darwin"
+#define DEVICE          store_device
+#define DEVICE_EMMC     "/dev/remmc_var"
+static long long store_at = 8589934592LL;       /* darwin's block 2097152: past the cryptexes, with room to spare */
+static long long slot_bytes = 0x80000000LL;     /* 2 GiB a slot, two slots */
+static const char *store_device = "/dev/rufs_darwin";
+
+static void
+pick_store(void)
+{
+	int probe = open(DEVICE_EMMC, O_RDONLY, 0);
+
+	if (probe >= 0) {
+		close(probe);
+		store_at = 0;                           /* the whole tail the kernel lets through */
+		slot_bytes = 0x10000000LL;              /* 256 MiB a slot, two slots */
+		store_device = DEVICE_EMMC;
+	}
+}
 #define ROOT            "/private/var"
 #define MAX_PATH        1024
 #define MAX_DEPTH       32
@@ -1376,6 +1394,7 @@ main(int argc, char **argv, char **envp)
 	if (already == MAP_FAILED) {
 		already = NULL;
 	}
+	pick_store();
 	if (strcmp(what, "watch") == 0) {
 		if (!boot_arg_is("var_store", "1")) {
 			printf("var_store: not asked to keep the data volume (var_store=1): nothing to watch\n");
